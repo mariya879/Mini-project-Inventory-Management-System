@@ -1,0 +1,260 @@
+import sqlite3
+import getpass
+from colorama import init, Fore, Style
+
+init(autoreset=True)
+# ==============================
+# Database Setup
+# ==============================
+def init_db():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    # Supplier table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Supplier (
+        supplier_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        contact_no TEXT,
+        address TEXT
+    )
+    """)
+
+    # Product table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Product (
+        product_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT,
+        quantity INTEGER DEFAULT 0,
+        price REAL NOT NULL,
+        supplier_id INTEGER,
+        FOREIGN KEY (supplier_id) REFERENCES Supplier(supplier_id)
+    )
+    """)
+
+    # User table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS User (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT CHECK(role IN ('Admin','Customer','Staff')) NOT NULL
+    )
+    """)
+
+    # Transactions table (renamed from Transaction to avoid SQL reserved keyword)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Transactions (
+        txn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        user_id INTEGER,
+        txn_type TEXT CHECK(txn_type IN ('Purchase','Sale')) NOT NULL,
+        quantity INTEGER NOT NULL,
+        date TEXT DEFAULT (DATE('now')),
+        FOREIGN KEY (product_id) REFERENCES Product(product_id),
+        FOREIGN KEY (user_id) REFERENCES User(user_id)
+    )
+    """)
+
+    # Default admin
+    cur.execute("SELECT * FROM User WHERE role='Admin'")
+    if not cur.fetchone():
+        cur.execute("INSERT INTO User (username, password, role) VALUES (?, ?, ?)",
+                    ("admin", "admin123", "Admin"))
+    print(Fore.GREEN + "✅ Default admin created (username: admin, password: admin123)" + Style.RESET_ALL)
+
+    conn.commit()
+    conn.close()
+
+# ==============================
+# Authentication
+# ==============================
+def login():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    username = input("Enter username: ")
+    password = getpass.getpass("Enter password: ")
+
+    cur.execute("SELECT user_id, role FROM User WHERE username=? AND password=?", (username, password))
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        print(Fore.GREEN + f"\n✅ Login successful! Welcome, {username} ({row[1]}).\n" + Style.RESET_ALL)
+        return row  # (user_id, role)
+    else:
+        print(Fore.RED + "❌ Invalid login!" + Style.RESET_ALL)
+        return None
+
+# ==============================
+# Admin Menu
+# ==============================
+def admin_menu(user_id):
+    while True:
+        print(Fore.CYAN + "\n" + "="*40 + Style.RESET_ALL)
+        print(Fore.CYAN + "{:^40}".format("ADMIN MENU") + Style.RESET_ALL)
+        print(Fore.CYAN + "="*40 + Style.RESET_ALL)
+        print("┌─────────┬──────────────────────┐")
+        print("│  CHOICE │       ACTION         │")
+        print("├─────────┼──────────────────────┤")
+        print("│    1    │   Add Product        │")
+        print("│    2    │   View Products      │")
+        print("│    3    │   Record Purchase    │")
+        print("│    4    │   View Transactions  │")
+        print("│    5    │   Logout             │")
+        print("└─────────┴──────────────────────┘")
+        choice = input("Enter your choice (1-5): ")
+
+        if choice == "1":
+            add_product()
+        elif choice == "2":
+            view_products()
+        elif choice == "3":
+            record_transaction(user_id, "Purchase")
+        elif choice == "4":
+            view_transactions()
+        elif choice == "5":
+            break
+        else:
+            print(Fore.RED + "❌ Invalid choice!" + Style.RESET_ALL)
+
+# ==============================
+# Customer Menu
+# ==============================
+def customer_menu(user_id):
+    while True:
+        print(Fore.CYAN + "\n" + "="*40 + Style.RESET_ALL)
+        print(Fore.CYAN + "{:^40}".format("CUSTOMER MENU") + Style.RESET_ALL)
+        print(Fore.CYAN + "="*40 + Style.RESET_ALL)
+        print("┌─────────┬────────────────────────────┐")
+        print("│  CHOICE │          ACTION            │")
+        print("├─────────┼────────────────────────────┤")
+        print("│    1    │   View Products           │")
+        print("│    2    │   Book Product (Sale)     │")
+        print("│    3    │   View My Transactions    │")
+        print("│    4    │   Logout                  │")
+        print("└─────────┴────────────────────────────┘")
+        choice = input("Enter your choice (1-4): ")
+
+        if choice == "1":
+            view_products()
+        elif choice == "2":
+            record_transaction(user_id, "Sale")
+        elif choice == "3":
+            view_transactions(user_id)
+        elif choice == "4":
+            break
+        else:
+            print(Fore.RED + "❌ Invalid choice!" + Style.RESET_ALL)
+
+# ==============================
+# CRUD Operations
+# ==============================
+def add_product():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    name = input("Product name: ")
+    category = input("Category: ")
+    quantity = int(input("Quantity: "))
+    price = float(input("Price: "))
+
+    cur.execute("INSERT INTO Product (name, category, quantity, price) VALUES (?, ?, ?, ?)",
+                (name, category, quantity, price))
+
+    conn.commit()
+    conn.close()
+    print(Fore.GREEN + "✅ Product added successfully!" + Style.RESET_ALL)
+
+def view_products():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM Product")
+    rows = cur.fetchall()
+
+    print(Fore.YELLOW + "\n--- Available Products ---" + Style.RESET_ALL)
+    for row in rows:
+        print(f"ID: {row[0]} | Name: {row[1]} | Category: {row[2]} | Qty: {row[3]} | Price: {row[4]}")
+
+    conn.close()
+
+# ==============================
+# Transaction Handling
+# ==============================
+def record_transaction(user_id, txn_type):
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    prod_id = int(input("Enter Product ID: "))
+    qty = int(input("Enter quantity: "))
+
+    # Get product stock
+    cur.execute("SELECT quantity FROM Product WHERE product_id=?", (prod_id,))
+    row = cur.fetchone()
+
+    if not row:
+        print(Fore.RED + "❌ Product not found!" + Style.RESET_ALL)
+        conn.close()
+        return
+
+    current_qty = row[0]
+
+    if txn_type == "Sale":
+        if current_qty < qty:
+            print(Fore.RED + "❌ Not enough stock available!" + Style.RESET_ALL)
+            conn.close()
+            return
+        new_qty = current_qty - qty
+    else:  # Purchase
+        new_qty = current_qty + qty
+
+    # Update stock
+    cur.execute("UPDATE Product SET quantity=? WHERE product_id=?", (new_qty, prod_id))
+
+    # Record transaction
+    cur.execute("INSERT INTO Transactions (product_id, user_id, txn_type, quantity) VALUES (?, ?, ?, ?)",
+                (prod_id, user_id, txn_type, qty))
+
+    conn.commit()
+    conn.close()
+    print(Fore.GREEN + f"✅ {txn_type} recorded successfully!" + Style.RESET_ALL)
+
+def view_transactions(user_id=None):
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+
+    if user_id:
+        cur.execute("SELECT * FROM Transactions WHERE user_id=?", (user_id,))
+    else:
+        cur.execute("SELECT * FROM Transactions")
+
+    rows = cur.fetchall()
+
+    print(Fore.YELLOW + "\n--- Transactions ---" + Style.RESET_ALL)
+    for row in rows:
+        print(f"TxnID: {row[0]} | ProductID: {row[1]} | UserID: {row[2]} | Type: {row[3]} | Qty: {row[4]} | Date: {row[5]}")
+
+    conn.close()
+
+# ==============================
+# Main
+# ==============================
+def main():
+    init_db()
+
+    while True:
+        user = login()
+        if user:
+            user_id, role = user
+            if role == "Admin":
+                admin_menu(user_id)
+            elif role == "Customer":
+                customer_menu(user_id)
+        else:
+            print(Fore.MAGENTA + "Try again!" + Style.RESET_ALL)
+
+if __name__ == "__main__":
+    main()
