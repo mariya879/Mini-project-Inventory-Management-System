@@ -1,8 +1,37 @@
 import sqlite3
 import getpass
 from colorama import init, Fore, Style
+import sqlite3
+import getpass
 
 init(autoreset=True)
+
+# ==============================
+# Supplier Module
+# ==============================
+def add_supplier():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+    name = input("Supplier name: ")
+    contact_no = input("Contact number: ")
+    address = input("Address: ")
+    cur.execute("INSERT INTO Supplier (name, contact_no, address) VALUES (?, ?, ?)",
+                (name, contact_no, address))
+    conn.commit()
+    conn.close()
+    print(Fore.GREEN + "✅ Supplier added successfully!" + Style.RESET_ALL)
+
+def view_suppliers():
+    conn = sqlite3.connect("inventory.db")
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM Supplier")
+    rows = cur.fetchall()
+    print(Fore.YELLOW + "\n--- Suppliers ---" + Style.RESET_ALL)
+    print(f"{'ID':<4} {'Name':<25} {'Contact':<15} {'Address':<20}")
+    print("-" * 70)
+    for row in rows:
+        print(f"{row[0]:<4} {row[1]:<25} {row[2]:<15} {row[3]:<20}")
+    conn.close()
 # ==============================
 # Database Setup
 # ==============================
@@ -103,9 +132,11 @@ def admin_menu(user_id):
         print("│    2    │   View Products      │")
         print("│    3    │   Record Purchase    │")
         print("│    4    │   View Transactions  │")
-        print("│    5    │   Logout             │")
+        print("│    5    │   Add Supplier       │")
+        print("│    6    │   View Suppliers     │")
+        print("│    7    │   Logout             │")
         print("└─────────┴──────────────────────┘")
-        choice = input("Enter your choice (1-5): ")
+        choice = input("Enter your choice (1-7): ")
 
         if choice == "1":
             add_product()
@@ -116,6 +147,10 @@ def admin_menu(user_id):
         elif choice == "4":
             view_transactions()
         elif choice == "5":
+            add_supplier()
+        elif choice == "6":
+            view_suppliers()
+        elif choice == "7":
             break
         else:
             print(Fore.RED + "❌ Invalid choice!" + Style.RESET_ALL)
@@ -176,8 +211,10 @@ def view_products():
     rows = cur.fetchall()
 
     print(Fore.YELLOW + "\n--- Available Products ---" + Style.RESET_ALL)
+    print(f"{'ID':<4} {'Name':<25} {'Category':<15} {'Qty':<6} {'Price':<8}")
+    print("-" * 65)
     for row in rows:
-        print(f"ID: {row[0]} | Name: {row[1]} | Category: {row[2]} | Qty: {row[3]} | Price: {row[4]}")
+        print(f"{row[0]:<4} {row[1]:<25} {row[2]:<15} {row[3]:<6} {row[4]:<8}")
 
     conn.close()
 
@@ -194,34 +231,33 @@ def record_transaction(user_id, txn_type):
     # Get product stock
     cur.execute("SELECT quantity FROM Product WHERE product_id=?", (prod_id,))
     row = cur.fetchone()
-
     if not row:
         print(Fore.RED + "❌ Product not found!" + Style.RESET_ALL)
         conn.close()
         return
-
     current_qty = row[0]
 
-    if txn_type == "Sale":
-        if current_qty < qty:
-            print(Fore.RED + "❌ Not enough stock available!" + Style.RESET_ALL)
+    if txn_type == "Purchase":
+        new_qty = current_qty + qty
+        cur.execute("UPDATE Product SET quantity=? WHERE product_id=?", (new_qty, prod_id))
+        cur.execute("INSERT INTO Transactions (product_id, user_id, txn_type, quantity, date) VALUES (?, ?, ?, ?, datetime('now'))",
+                    (prod_id, user_id, "Purchase", qty))
+        conn.commit()
+        print(Fore.GREEN + f"✅ Purchase recorded. New stock: {new_qty}" + Style.RESET_ALL)
+    elif txn_type == "Sale":
+        if qty > current_qty:
+            print(Fore.RED + "❌ Not enough stock!" + Style.RESET_ALL)
             conn.close()
             return
         new_qty = current_qty - qty
-    else:  # Purchase
-        new_qty = current_qty + qty
-
-    # Update stock
-    cur.execute("UPDATE Product SET quantity=? WHERE product_id=?", (new_qty, prod_id))
-
-    # Record transaction
-    cur.execute("INSERT INTO Transactions (product_id, user_id, txn_type, quantity) VALUES (?, ?, ?, ?)",
-                (prod_id, user_id, txn_type, qty))
-
-    conn.commit()
+        cur.execute("UPDATE Product SET quantity=? WHERE product_id=?", (new_qty, prod_id))
+        cur.execute("INSERT INTO Transactions (product_id, user_id, txn_type, quantity, date) VALUES (?, ?, ?, ?, datetime('now'))",
+                    (prod_id, user_id, "Sale", qty))
+        conn.commit()
+        print(Fore.GREEN + f"✅ Sale recorded. Remaining stock: {new_qty}" + Style.RESET_ALL)
+    else:
+        print(Fore.RED + "❌ Invalid transaction type!" + Style.RESET_ALL)
     conn.close()
-    print(Fore.GREEN + f"✅ {txn_type} recorded successfully!" + Style.RESET_ALL)
-
 def view_transactions(user_id=None):
     conn = sqlite3.connect("inventory.db")
     cur = conn.cursor()
@@ -234,8 +270,10 @@ def view_transactions(user_id=None):
     rows = cur.fetchall()
 
     print(Fore.YELLOW + "\n--- Transactions ---" + Style.RESET_ALL)
+    print(f"{'TxnID':<6} {'ProductID':<10} {'UserID':<7} {'Type':<10} {'Qty':<5} {'Date':<20}")
+    print("-" * 60)
     for row in rows:
-        print(f"TxnID: {row[0]} | ProductID: {row[1]} | UserID: {row[2]} | Type: {row[3]} | Qty: {row[4]} | Date: {row[5]}")
+        print(f"{row[0]:<6} {row[1]:<10} {row[2]:<7} {row[3]:<10} {row[4]:<5} {row[5]:<20}")
 
     conn.close()
 
